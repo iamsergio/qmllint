@@ -1,0 +1,5 @@
+moc_*
+*.o
+Makefile
+qmllint
+qmllint.pro.user
