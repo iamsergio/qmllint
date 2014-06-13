@@ -5,8 +5,7 @@
 
 #include <QtQml/private/qqmljslexer_p.h>
 #include <QtQml/private/qqmljsparser_p.h>
-#include <QtQml/private/qqmlirbuilder_p.h>
-
+#include <QtQml/private/qqmljsengine_p.h>
 
 static bool lint_file(const QString &filename, bool silent)
 {
@@ -16,11 +15,11 @@ static bool lint_file(const QString &filename, bool silent)
         return false;
     }
 
-    QmlIR::Document doc(/*debugger=*/false);
-    QQmlJS::Lexer lexer(&doc.jsParserEngine);
     QByteArray code = file.readAll();
+    QQmlJS::Engine engine;
+    QQmlJS::Lexer lexer(&engine);
     lexer.setCode(code, /*line = */ 1);
-    QQmlJS::Parser parser(&doc.jsParserEngine);
+    QQmlJS::Parser parser(&engine);
 
     bool success = parser.parse();
 
