@@ -2,6 +2,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QStringList>
+#include <QFileInfo>
 
 #include <QtQml/private/qqmljslexer_p.h>
 #include <QtQml/private/qqmljsparser_p.h>
@@ -16,12 +17,16 @@ static bool lint_file(const QString &filename, bool silent)
     }
 
     QByteArray code = file.readAll();
+    file.close();
     QQmlJS::Engine engine;
     QQmlJS::Lexer lexer(&engine);
     lexer.setCode(code, /*line = */ 1);
     QQmlJS::Parser parser(&engine);
 
-    bool success = parser.parse();
+    QFileInfo info(filename);
+
+    bool success = info.suffix().toLower() == QLatin1String("js") ? parser.parseProgram()
+                                                                  : parser.parse();
 
     if (!success && !silent) {
         foreach (const QQmlJS::DiagnosticMessage &m, parser.diagnosticMessages()) {
