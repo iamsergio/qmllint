@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QStringList>
 #include <QFileInfo>
+#include <QTextStream>
 
 #include <QtQml/private/qqmljslexer_p.h>
 #include <QtQml/private/qqmljsparser_p.h>
@@ -42,7 +43,9 @@ int main(int argv, char *argc[])
     QGuiApplication app(argv, argc);
 
     if (argv < 2) {
-        qWarning() << "Usage: qmllint [--silent] <file1.qml>";
+        QTextStream stream(stdout);
+        stream << QObject::tr("Usage: qmllint [--silent] <file1> ... <fileN>") << "\n\n"
+               << QObject::tr("Where <file> is either a .js or a .qml file.") << "\n";
         return -2;
     }
 
