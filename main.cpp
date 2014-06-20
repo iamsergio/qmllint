@@ -9,6 +9,25 @@
 #include <QtQml/private/qqmljsparser_p.h>
 #include <QtQml/private/qqmljsengine_p.h>
 
+#if QT_VERSION >= 0x050300
+# include <QtQml/private/qqmlirbuilder_p.h>
+#else
+# include <QtQml/private/qqmlscript_p.h>
+#endif
+
+static void remove_metadata(QString &code)
+{
+    // Removes .pragma library and such, otherwise we get a syntax error.
+#if QT_VERSION >= 0x050300
+        QQmlJS::DiagnosticMessage metaDataError;
+        QmlIR::Document irUnit(/**debugger=*/false);
+        irUnit.extractScriptMetaData(code, &metaDataError);
+#else
+        QQmlError metaDataError;
+        QQmlScript::Parser::extractMetaData(code, &metaDataError);
+#endif
+}
+
 static bool lint_file(const QString &filename, bool silent)
 {
     QFile file(filename);
@@ -17,17 +36,22 @@ static bool lint_file(const QString &filename, bool silent)
         return false;
     }
 
-    QByteArray code = file.readAll();
+    QString code = file.readAll();
     file.close();
+
     QQmlJS::Engine engine;
     QQmlJS::Lexer lexer(&engine);
-    lexer.setCode(code, /*line = */ 1);
-    QQmlJS::Parser parser(&engine);
 
     QFileInfo info(filename);
+    bool isJavaScript = info.suffix().toLower() == QLatin1String("js");
+    if (isJavaScript) {
+        remove_metadata(/*by-ref*/code);
+    }
 
-    bool success = info.suffix().toLower() == QLatin1String("js") ? parser.parseProgram()
-                                                                  : parser.parse();
+    lexer.setCode(code, /*line = */ 1, true);
+    QQmlJS::Parser parser(&engine);
+
+    bool success = isJavaScript ? parser.parseProgram() : parser.parse();
 
     if (!success && !silent) {
         foreach (const QQmlJS::DiagnosticMessage &m, parser.diagnosticMessages()) {
