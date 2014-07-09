@@ -8,4 +8,4 @@ INCLUDEPATH += .
 
 # Input
 SOURCES += main.cpp
-QT += quick qml-private core-private
+QT += qml-private core-private
