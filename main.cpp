@@ -34,8 +34,10 @@
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
+#include <QQmlComponent>
+#include <QQmlEngine>
 #include <QCommandLineParser>
-#include <QCoreApplication>
+#include <QGuiApplication>
 
 #include <QtQml/private/qqmljslexer_p.h>
 #include <QtQml/private/qqmljsparser_p.h>
@@ -46,6 +48,8 @@
 #else
 # include <QtQml/private/qqmlscript_p.h>
 #endif
+
+static bool s_silent = false;
 
 static void remove_metadata(QString &code)
 {
@@ -60,7 +64,39 @@ static void remove_metadata(QString &code)
 #endif
 }
 
-static bool lint_file(const QString &filename, bool silent)
+static QStringList semanticBlackList()
+{
+    static QStringList blacklist;
+    if (blacklist.isEmpty()) {
+        blacklist << QLatin1String("is not installed")
+                  << QLatin1String(" unavailable")
+                  << QLatin1String(": no such directory")
+                  << QLatin1String(": File not found");
+    }
+
+    return blacklist;
+}
+
+
+void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+{
+    if (s_silent)
+        return;
+
+    QByteArray localMsg = msg.toLocal8Bit();
+    switch (type) {
+    case QtDebugMsg:
+    case QtWarningMsg:
+    case QtCriticalMsg:
+        fprintf(stderr, "%s\n", localMsg.constData());
+        break;
+    case QtFatalMsg:
+        fprintf(stderr, "Fatal: %s (%s:%u, %s)\n", localMsg.constData(), context.file, context.line, context.function);
+        abort();
+    }
+}
+
+static bool lint_file(const QString &filename)
 {
     QFile file(filename);
     if (!file.open(QFile::ReadOnly)) {
@@ -85,7 +121,7 @@ static bool lint_file(const QString &filename, bool silent)
 
     bool success = isJavaScript ? parser.parseProgram() : parser.parse();
 
-    if (!success && !silent) {
+    if (!success) {
         foreach (const QQmlJS::DiagnosticMessage &m, parser.diagnosticMessages()) {
             qWarning("%s:%d : %s", qPrintable(filename), m.loc.startLine, qPrintable(m.message));
         }
@@ -94,29 +130,77 @@ static bool lint_file(const QString &filename, bool silent)
     return success;
 }
 
+static QQmlEngine* qmlEngine()
+{
+    static QQmlEngine *engine = new QQmlEngine();
+    return engine;
+}
+
+static bool run_semantic_checks(const QString &filename)
+{
+    bool success = true;
+    if (!filename.endsWith(QLatin1String(".qml")))
+        return true;
+
+    QQmlComponent component(qmlEngine(), QUrl::fromLocalFile(filename));
+    bool tmp = s_silent;
+    s_silent = true;
+    QObject *obj = component.create();
+    s_silent = tmp;
+    if (!obj) {
+        foreach (const QQmlError &error, component.errors()) {
+            const QString errorStr = error.toString();
+            bool blacklisted = false;
+            foreach (const QString &exp, semanticBlackList()) {
+                if (errorStr.contains(exp)) {
+                    blacklisted = true;
+                    break;
+                }
+            }
+
+            success &= blacklisted;
+            if (!blacklisted) {
+                qWarning() << error;
+            }
+        }
+    }
+
+    return success;
+}
+
 int main(int argv, char *argc[])
 {
-    QCoreApplication app(argv, argc);
-    QCoreApplication::setApplicationName("qmllint");
-    QCoreApplication::setApplicationVersion("1.0");
+    QGuiApplication app(argv, argc);
+    QGuiApplication::setApplicationName("qmllint");
+    QGuiApplication::setApplicationVersion("1.0");
     QCommandLineParser parser;
     parser.setApplicationDescription(QLatin1String("QML syntax verifier"));
     parser.addHelpOption();
     parser.addVersionOption();
     QCommandLineOption silentOption(QStringList() << "s" << "silent", QLatin1String("Don't output syntax errors"));
+    QCommandLineOption semanticOption(QStringList() << "t" << "semantic", QLatin1String("Run semantic checks too"));
     parser.addOption(silentOption);
+    parser.addOption(semanticOption);
     parser.addPositionalArgument(QLatin1String("files"), QLatin1String("list of qml or js files to verify"));
 
     parser.process(app);
+    qInstallMessageHandler(myMessageOutput);
 
     if (parser.positionalArguments().isEmpty()) {
         parser.showHelp(-1);
     }
 
-    bool silent = parser.isSet(silentOption);
+    s_silent = parser.isSet(silentOption);
+    bool semantic = parser.isSet(semanticOption);
     bool success = true;
     foreach (const QString &filename, parser.positionalArguments()) {
-        success &= lint_file(filename, silent);
+        success &= lint_file(filename);
+    }
+
+    if (success && semantic) {
+        foreach (const QString &filename, parser.positionalArguments()) {
+            success &= run_semantic_checks(filename);
+        }
     }
 
     return success ? 0 : -1;
